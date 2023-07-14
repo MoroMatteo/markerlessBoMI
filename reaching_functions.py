@@ -1,18 +1,19 @@
 import numpy as np
 import pandas as pd
 from scipy import signal as sgn
-
+import math
+import random
 import os
 
 
-def write_header(r):
+def write_header(r, subj_num_str):
     # First check whether Practice folder exists. If not, create it
     if not os.path.exists(r.path_log):
         os.mkdir(r.path_log)
 
-    header = "time\tnose_x\tnose_y\tr_shoulder_x\tr_shoulder_y\tl_shoulder_x\tl_shooulder_t\tcursor_x\tcursor_y\tblock\t"\
+    header = "time\tnose_x\tnose_y\tr_shoulder_x\tr_shoulder_y\tl_shoulder_x\tl_shoulder_y\tcursor_x\tcursor_y\ttarget_x\ttarget_y\tblock\t"\
              "repetition\ttarget\ttrial\tstate\tcomeback\tis_blind\tat_home\tcount_mouse\tscore\n"
-    with open(r.path_log + "PracticeLog.txt", "w+") as file_log:
+    with open(r.path_log + subj_num_str + "PracticeLog.txt", "w+") as file_log:
         file_log.write(header)
 
 
@@ -70,6 +71,12 @@ def filter_cursor(r, filter_curs):
 
     return filter_curs.filtered_value[0], filter_curs.filtered_value[1]
 
+def rotate_xy(xy, rot):
+    tmp_x, tmp_y = xy[0], xy[1]
+    xy[0] = tmp_x * np.cos(np.pi / 180 * rot) - tmp_y * np.sin(np.pi / 180 * rot)
+    xy[1] = tmp_x * np.sin(np.pi / 180 * rot) + tmp_y * np.cos(np.pi / 180 * rot)
+
+    return xy
 
 def update_cursor_position_custom(body, map, rot, scale, off):
 
@@ -81,38 +88,49 @@ def update_cursor_position_custom(body, map, rot, scale, off):
         cu = np.dot(h, map[0][2]) + map[1][2]
 
     # Applying rotation
-    cu[0] = cu[0] * np.cos(np.pi / 180 * rot) - cu[1] * np.sin(np.pi / 180 * rot)
-    cu[1] = cu[0] * np.sin(np.pi / 180 * rot) + cu[1] * np.cos(np.pi / 180 * rot)
-
+    cu = rotate_xy(cu,rot)
     # Applying scale
     cu = cu * scale
-
     # Applying offset
     cu = cu + off
-
     return cu[0], cu[1]
 
 
-def update_cursor_position(body, map, rot_ae, scale_ae, off_ae, rot_custom, scale_custom, off_custom):
+def update_cursor_position(body, map, rot_ae, scale_ae, off_ae, rot_custom, scale_custom, off_custom, p_range, dr_mode=""):  #prange !!!!!!!!!!!!!
 
     if type(map) != tuple:
         cu = np.dot(body, map)
     else:
-        h = np.tanh(np.dot(body, map[0][0]) + map[1][0])
-        h = np.tanh(np.dot(h, map[0][1]) + map[1][1])
-        cu = np.dot(h, map[0][2]) + map[1][2]
+        if dr_mode == "vae":
+            h = np.tanh(np.dot(body, map[0][0]) + map[1][0])
+            h = np.tanh(np.dot(h, map[0][1]) + map[1][1])
+            mu_map = np.dot(h, map[0][2]) + map[1][2]
+            log_sigma_map = np.dot(h, map[0][3]) + map[1][3]
+
+            epsilon = random.gauss(0, 0.1)
+
+            cu = [mu + np.exp(l_sig/2.0) * epsilon for mu, l_sig in zip(mu_map, log_sigma_map)]
+            cu = np.asarray(cu)
+        else:
+            h = np.tanh(np.dot(body, map[0][0]) + map[1][0])
+            h = np.tanh(np.dot(h, map[0][1]) + map[1][1])
+            cu = np.dot(h, map[0][2]) + map[1][2]
 
     # Applying rotation, scale and offset computed after AE training
-    cu[0] = cu[0] * np.cos(np.pi / 180 * rot_ae) - cu[1] * np.sin(np.pi / 180 * rot_ae)
-    cu[1] = cu[0] * np.sin(np.pi / 180 * rot_ae) + cu[1] * np.cos(np.pi / 180 * rot_ae)
+    cu = rotate_xy(cu,rot_ae)
     cu = cu * scale_ae
     cu = cu + off_ae
 
+    for i in range(2):
+        cu[i] -= p_range[i]/2.0 #normalizza, ruota e poi aggiunge quello che è stato levato
+        
     # Applying rotation, scale and offset computed after customization
-    cu[0] = cu[0] * np.cos(np.pi / 180 * rot_custom) - cu[1] * np.sin(np.pi / 180 * rot_custom)
-    cu[1] = cu[0] * np.sin(np.pi / 180 * rot_custom) + cu[1] * np.cos(np.pi / 180 * rot_custom)
+    cu = rotate_xy(cu,rot_custom)
     cu = cu * scale_custom
     cu = cu + off_custom
+    
+    for i in range(2):
+        cu[i] += p_range[i]/2.0
 
     return cu[0], cu[1]
 

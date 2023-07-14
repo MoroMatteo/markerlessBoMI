@@ -10,10 +10,11 @@ assert sys.version_info >= (3, 5)
 import tensorflow as tf
 # import tensorflow_probability as tfp
 from tensorflow import keras
-from tensorflow.keras import Model
-from tensorflow.keras.models import Sequential
+from keras import Model
+from keras.models import Sequential
 from tensorflow.keras.layers import Input
 from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Lambda
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import RepeatVector
 from tensorflow.keras.layers import TimeDistributed
@@ -24,6 +25,7 @@ from tensorflow.keras.layers import Flatten
 from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras import backend as K
+from keras.losses import  mse
 
 # assert tf.__version__ >= "2.0"
 
@@ -162,6 +164,7 @@ class Autoencoder(object):
     #     return K.random_normal(shape, dtype=dtype)
 
     def train_network(self, x_train, **kwargs):
+
         # tf.config.experimental_run_functions_eagerly(True)
         tf.compat.v1.disable_eager_execution()  # xps does not work with eager exec on. tf 2.1 bug?
         tf.keras.backend.clear_session()  # For easy reset of notebook state.
@@ -182,24 +185,22 @@ class Autoencoder(object):
         hidden2 = Dense(self._h2, activation=self._activation)(latent)
         hidden2 = Dense(self._h2, activation=self._activation)(hidden2)
         predictions = Dense(len(x_train[0]))(hidden2)
-
+        
         if 'checkpoint' in kwargs:
             cp_callback = keras.callbacks.ModelCheckpoint(filepath=kwargs['checkpoint'] + 'model-{epoch:02d}.h5',
                                                           save_weights_only=True, verbose=0, period=2500)
+            
         encoder = Model(inputs=inputs, outputs=latent)
         autoencoder = Model(inputs=inputs, outputs=predictions)
-
         autoencoder.summary()
 
         # compile model with mse loss and ADAM optimizer (uncomment for SGD)
         autoencoder.compile(loss='mse', optimizer=Adam(learning_rate=self._alpha))
         # autoencoder.compile(loss='mse', optimizer=SGD(learning_rate=self._alpha))
-
         # Specify path for TensorBoard log. Works only if typ is specified in kwargs
         if 'typ' in kwargs:
             log_dir = "logs\{}".format(kwargs['typ']) + "\{}".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
             tensorboard = TensorBoard(log_dir=log_dir, histogram_freq=1)
-
         if 'checkpoint' in kwargs:
             # Start training of the network
             history = autoencoder.fit(x=x_train,
@@ -208,13 +209,12 @@ class Autoencoder(object):
                                       batch_size=len(x_train),
                                       callbacks=[cp_callback, loss_callback])
         else:
-            # Start training of the network
+            # Start training of the network ----> si pianta qui
             history = autoencoder.fit(x=x_train,
                                       y=x_train,
-                                      epochs=self._steps, verbose=0,
                                       batch_size=len(x_train),
+                                      epochs=self._steps, verbose=0,
                                       callbacks=[loss_callback])
-
         # Get network prediction
         # get_2nd_layer_output = K.function([autoencoder.layers[0].input],
         #                                   [autoencoder.layers[2].output])
@@ -225,6 +225,7 @@ class Autoencoder(object):
 
         weights = []
         biases = []
+
         # Get encoder parameters
         for layer in autoencoder.layers:
             if layer.get_weights():
@@ -232,7 +233,6 @@ class Autoencoder(object):
                 biases.append(layer.get_weights()[1])
 
         print("\n")  # blank space after loss printing
-
         # overload for different kwargs (test data, codings, ... )
         if 'x_test' in kwargs:
             test_rec = autoencoder.predict(kwargs['x_test'])
@@ -368,6 +368,7 @@ class Autoencoder(object):
             return cnn_autoencoder_history, train_rec, train_cu
 
     def train_vae(self, x_train, **kwargs):
+
         # tf.config.experimental_run_functions_eagerly(True)
         tf.compat.v1.disable_eager_execution()  # xps does not work with eager exec on. tf 2.1 bug?
         tf.keras.backend.clear_session()  # For easy reset of notebook state.
@@ -375,7 +376,7 @@ class Autoencoder(object):
 
         # to make this notebook's output stable across runs
         np.random.seed(self._seed)
-        tf.random.set_seed(self._seed)
+        # tf.random.set_seed(self._seed)
 
         # factor for scaling KLD term
         if 'beta' in kwargs:
@@ -386,70 +387,85 @@ class Autoencoder(object):
         # object for callback function during training
         loss_callback = LossCallback()
 
-        # checkpoint_path = 'C:/Users/fabio/Desktop/test/model-{epoch:02d}.h5'
-        # cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
-        #                                                  save_weights_only=True,
-        #                                                  verbose=0, save_freq=500)
+        # Encoder definition
+        x = Input(shape=len(x_train[0],), name="input")
+        h = Dense(self._h1, activation=self._activation, name="intermediate_encoder")(x)
+        h = Dense(self._h1, activation=self._activation, name="latent_encoder")(h)
+        z_mean = Dense(self._cu, name="mu_encoder")(h)
+        z_log_sigma = Dense(self._cu, name="sigma_encoder")(h)
 
-        # the inference network (encoder) defines an approximate posterior distribution q(z/x), which takes as input an
-        # observation and outputs a set of parameters for the conditional distribution of the latent representation.
-        # Here, I simply model this distribution as a diagional Gaussian. Specifically, the interfence network outputs
-        # the mean and log-variance parameters of a factorized Gaussian (log-variance instead of the variance directly
-        # is for numerical stability)
-        inputs = Input(shape=(len(x_train[0]),))
-        z = Dense(self._h1, activation=self._activation)(inputs)
-        z = Dense(self._h1, activation=self._activation)(z)
-        codings_mean = Dense(self._cu)(z)
-        codings_log_var = Dense(self._cu)(z)
-        # During optimization, we can sample from q(z/x) by first sampling from a unit Gaussian, and then multiplying
-        # by the standard deviation and adding the mean. This ensures the gradients could pass through the sample
-        # to the interence network parameters. This is called reparametrization trick
-        # codings = Sampling()([codings_mean, codings_log_var])
-        codings = Sampling()([codings_mean, codings_log_var])
+        # Sampling trick from latent space
+        def sampling(args):
+            z_mean, z_log_sigma = args
+            batch = tf.shape(z_mean)[0]
+            dim = tf.shape(z_mean)[1]
+            std_dev = 0.1
+            epsilon = K.random_normal(shape=(batch, dim),
+                                      mean=0., stddev=std_dev)
+            return z_mean + K.exp(z_log_sigma / 2.0) * epsilon
 
-        variational_encoder = Model(inputs=[inputs], outputs=[codings_mean, codings_log_var, codings])
+        z = Lambda(sampling)([z_mean, z_log_sigma])
 
-        # the generative network (decoder)is just a mirrored version of the encoder.
-        decoder_inputs = Input(shape=[self._cu])
-        x = Dense(self._h1, activation=self._activation)(decoder_inputs)
-        x = Dense(self._h1, activation=self._activation)(x)
-        outputs = Dense(len(x_train[0]))(x)
-        variational_decoder = Model(inputs=[decoder_inputs], outputs=[outputs])
+        # Create encoder
+        encoder = keras.Model(x, [z_mean, z_log_sigma, z], name='encoder')
 
-        _, _, codings = variational_encoder(inputs)
-        reconstructions = variational_decoder(codings)
-        variational_ae = Model(inputs=[inputs], outputs=[reconstructions])
+        encoder.summary()
 
-        variational_ae.compile(loss=custom_loss_vae(codings_log_var, codings_mean, beta),
-                               optimizer=Adam(learning_rate=self._alpha),
-                               metrics=[mse_loss, kld_loss(codings_log_var, codings_mean, beta)])
-        variational_ae.summary()
+        # Decoder definition
 
-        # During training, 1. we start by iterating over the dataset
-        # 2. during each iter, we pass the input data to the encoder to obtain a set of mean and log-variance
-        # parameters of the approximate posterior q(z/x)
-        # 3. we then apply the reparametrization trick to sample from q(z/x)
-        # 4. finally, we pass the reparam samples to the decoder to obtain the logits of the generative distrib p(x/z)
-        history = variational_ae.fit(x=x_train,
-                                     y=x_train,
-                                     epochs=self._steps, verbose=0,
-                                     batch_size=len(x_train),
-                                     callbacks=[loss_callback])
+        # Decoder definition
+        decoder = Sequential([
+            Dense(self._h2, input_dim=self._cu, activation=self._activation, name="input_decoder"),
+            Dense(self._h2, input_dim=self._h2, activation=self._activation, name="intermediate_decoder"),
+            Dense(len(x_train[0]), activation=self._activation, name="reconstruction_decoder")
+        ])
+        decoder.summary()
+
+        # VAE model statement
+        # instantiate VAE model
+        pred = decoder(encoder(x)[2])
+        vae = keras.Model(x, pred, name='vae_mlp')
+
+        vae.summary()
+
+        def vae_loss(input, output):
+            # Compute error in reconstruction
+            reconstruction_loss = mse(input, output)
+
+            # Compute the KL Divergence regularization term
+            kl_loss = - 0.5 * K.sum(1 + z_log_sigma - K.square(z_mean) - K.exp(z_log_sigma), axis=-1)
+
+            # Return the average loss over all images in batch
+            total_loss = (reconstruction_loss + 0.0001 * kl_loss)
+            return total_loss
+
+        vae.compile(optimizer=Adam(learning_rate=self._alpha), loss=vae_loss)
+        encoder.compile(optimizer=Adam(learning_rate=self._alpha), loss=vae_loss)
+        decoder.compile(optimizer=Adam(learning_rate=self._alpha), loss=vae_loss)
+        #vae.compile(optimizer=Adam(learning_rate=self._alpha))
+
+        # It does not matter the type, but show us the vae
+
+        # Harvard
+        history = vae.fit(x=x_train,  y=x_train,
+                shuffle=True,
+                epochs=self._steps, verbose=0,
+                batch_size=8, callbacks=[loss_callback])
+                #validation_data=(val_x, None)
 
         # Get network prediction
-        train_cu = variational_encoder.predict(x_train)
+        train_cu = encoder.predict(x_train)
         # do not sample from any distribution, just use the mean vector
-        train_rec = variational_decoder.predict(train_cu[0])
-        # train_rec = variational_ae.predict(x_train)
+        train_rec = vae.predict(x_train)
 
         weights = []
         biases = []
         # Get encoder/decoder parameters
-        for layer in variational_encoder.layers:
+        for layer in encoder.layers:
             if layer.get_weights():
                 weights.append(layer.get_weights()[0])  # list of numpy arrays
                 biases.append(layer.get_weights()[1])
-        for layer in variational_decoder.layers:
+        for layer in decoder.layers:
             if layer.get_weights():
                 weights.append(layer.get_weights()[0])  # list of numpy arrays
                 biases.append(layer.get_weights()[1])
@@ -457,13 +473,14 @@ class Autoencoder(object):
         # after training it is time to generate some test signal. We start by sampling a set of latent vector from the
         # unit Gaussian distribution p(z). The generator will then convert the latent sample z to logits of the
         # observation, giving a distribution p(x/z).
+        # Here the test set is not extracted by the distribution
         if 'x_test' in kwargs:
-            test_cu = variational_encoder.predict(kwargs['x_test'])
-            test_rec = variational_decoder.predict(test_cu[0])
+            test_rec = vae.predict(kwargs['x_test'])
+            test_cu = encoder.predict(kwargs['x_test'])
 
-            return history, weights, biases, train_rec, train_cu, test_rec, test_cu
+            return history, weights, biases, train_rec, train_cu[2], test_rec, test_cu[2]
         else:
-            return history, weights, biases, train_rec, train_cu
+            return history, weights, biases, train_rec, train_cu[2]
 
     # def train_adversarial(self, x_train, struct, **kwargs):
     #     """
