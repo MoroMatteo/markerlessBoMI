@@ -215,7 +215,15 @@ class MainApplication(tk.Frame):
         if os.path.isfile(self.drPath + "weights1.txt"):
             # open customization window
             self.newWindow = tk.Toplevel(self.master)
-            self.newWindow.geometry("1000x500")
+            
+            custom_window_width = int(0.75*self.master.winfo_width())
+            custom_window_height = int(0.75*self.master.winfo_height())
+
+            x_cordinate = int((screen_width / 2)  - (custom_window_width / 2))
+            y_cordinate = int((screen_height / 2) - (custom_window_height / 2))
+
+            self.newWindow.geometry("{}x{}+{}+{}".format(custom_window_width, custom_window_height, x_cordinate, y_cordinate))
+            #self.newWindow.geometry("1000x500")
             self.newWindow.title("Customization")
             self.app = CustomizationApplication(self.newWindow, self, drPath=self.drPath, num_joints=self.num_joints,
                                                 joints=self.joints, dr_mode=self.dr_mode)
@@ -377,14 +385,14 @@ def compute_calibration(drPath, calib_duration, lbl_calib, num_joints, joints):
 
     # start thread for OpenCV. current frame will be appended in a queue in a separate thread
     q_frame = queue.Queue()
-    cal = 1  # if cal==1 (meaning during calibration) the opencv thread will display the image
-    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r, cal))
+    
+    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r))
     opencv_thread.start()
     print("openCV thread started in calibration.")
-
+    cal = 1
     # initialize thread for mediapipe operations
     mediapipe_thread = Thread(target=mediapipe_forwardpass,
-                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints))
+                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints, cal))
     mediapipe_thread.start()
     print("mediapipe thread started in calibration.")
 
@@ -457,7 +465,6 @@ def train_pca(calibPath, drPath):
     # save weights and biases
     if not os.path.exists(drPath):
         os.makedirs(drPath)
-    print(f"PCA: {pca.components_[:, :2]}")
     np.savetxt(drPath + "weights1.txt", pca.components_[:, :2])
 
     print('BoMI forward map (PCA parameters) has been saved.')
@@ -470,8 +477,8 @@ def train_pca(calibPath, drPath):
     # Applying rotation
     train_pc = np.dot(train_x, pca.components_[:, :2])
     rot = 0
-    train_pc[0] = train_pc[0] * np.cos(np.pi / 180 * rot) - train_pc[1] * np.sin(np.pi / 180 * rot)
-    train_pc[1] = train_pc[0] * np.sin(np.pi / 180 * rot) + train_pc[1] * np.cos(np.pi / 180 * rot)
+    train_pc = reaching_functions.rotate_xy(train_pc, rot)
+
     # Applying scale
     scale = [r.width / np.ptp(train_pc[:, 0]), r.height / np.ptp(train_pc[:, 1])]
     train_pc = train_pc * scale
@@ -547,8 +554,8 @@ def train_ae(calibPath, drPath):
     # normalize latent space to fit the monitor coordinates
     # Applying rotation
     rot = 0
-    train_cu[0] = train_cu[0] * np.cos(np.pi / 180 * rot) - train_cu[1] * np.sin(np.pi / 180 * rot)
-    train_cu[1] = train_cu[0] * np.sin(np.pi / 180 * rot) + train_cu[1] * np.cos(np.pi / 180 * rot)
+    train_cu = reaching_functions.rotate_xy(train_cu, rot)
+
     # Applying scale
     scale = [r.width / np.ptp(train_cu[:, 0]), r.height / np.ptp(train_cu[:, 1])]
     train_cu = train_cu * scale
@@ -735,14 +742,14 @@ def initialize_customization(self, dr_mode, drPath, num_joints, joints):
 
     # start thread for OpenCV. current frame will be appended in a queue in a separate thread
     q_frame = queue.Queue()
-    cal = 0
-    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r, cal))
+    
+    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r))
     opencv_thread.start()
     print("openCV thread started in customization.")
-
+    cal = 0
     # initialize thread for mediapipe operations
     mediapipe_thread = Thread(target=mediapipe_forwardpass,
-                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints))
+                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints, cal))
     mediapipe_thread.start()
     print("mediapipe thread started in customization.")
 
@@ -808,15 +815,9 @@ def initialize_customization(self, dr_mode, drPath, num_joints, joints):
 
             r.crs_x -= size[0]/2.0 # normalizza, ruota e poi aggiunge quello che è stato levato
             r.crs_y -= size[1]/2.0 # normalizza, ruota e poi aggiunge quello che è stato levato
-            r.crs_x /= r.width # tra 0 e 1
-            r.crs_y /= r.height
 
             # Applying rotation
-            tmp_crs_x = r.crs_x * np.cos(np.pi / 180 * rot_custom) - r.crs_y * np.sin(np.pi / 180 * rot_custom)
-            tmp_crs_y = r.crs_x * np.sin(np.pi / 180 * rot_custom) + r.crs_y * np.cos(np.pi / 180 * rot_custom)
-
-            r.crs_x = tmp_crs_x * r.width
-            r.crs_y = tmp_crs_y * r.height
+            r.crs_x, r.crs_y = reaching_functions.rotate_xy([r.crs_x, r.crs_y], rot_custom)
 
             # Applying scale
             r.crs_x = r.crs_x * gx_custom
@@ -945,6 +946,8 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
     mp_holistic = mp.solutions.holistic
     holistic = mp_holistic.Holistic(min_detection_confidence=0.4, min_tracking_confidence=0.4,
                                     smooth_landmarks=True)
+    # holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5,
+    #                                 smooth_landmarks=False)
 
     # load scaling values for covering entire monitor workspace
     rot_dr = pd.read_csv(drPath + 'rotation_dr.txt', sep=' ', header=None).values
@@ -967,14 +970,15 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
 
     # start thread for OpenCV. current frame will be appended in a queue in a separate thread
     q_frame = queue.Queue()
-    cal = 0
-    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r, cal))
+    
+    opencv_thread = Thread(target=get_data_from_camera, args=(cap, q_frame, r))
     opencv_thread.start()
     print("openCV thread started in practice.")
 
     # initialize thread for mediapipe operations
+    cal = 0
     mediapipe_thread = Thread(target=mediapipe_forwardpass,
-                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints))
+                              args=(holistic, mp_holistic, lock, q_frame, r, num_joints, joints, cal))
     mediapipe_thread.start()
     print("mediapipe thread started in practice.")
 
@@ -1009,8 +1013,8 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
             r.body = np.copy(body)
 
             # apply BoMI forward map to body vector to obtain cursor position.
-            r.crs_x, r.crs_y = reaching_functions.update_cursor_position(r.body, map, rot_dr, scale_dr, off_dr, rot_custom, scale_custom, off_custom, p_range=(r.width, r.height), dr_mode=dr_mode)
-            # r.crs_x, r.crs_y = reaching_functions.update_cursor_position_custom(r.body, map, rot_dr, scale_dr, off_dr)
+            # r.crs_x, r.crs_y = reaching_functions.update_cursor_position(r.body, map, rot_dr, scale_dr, off_dr, rot_custom, scale_custom, off_custom, p_range=(r.width, r.height), dr_mode=dr_mode)
+            r.crs_x, r.crs_y = reaching_functions.update_cursor_position_custom(r.body, map, rot_dr, scale_dr, off_dr)
             
             # Check if the crs is bouncing against any of the 4 walls:
             if r.crs_x >= r.width:
@@ -1083,7 +1087,7 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
     print("openCV object released in practice.")
 
 
-def get_data_from_camera(cap, q_frame, r, cal):
+def get_data_from_camera(cap, q_frame, r):
     '''
     function that runs in the thread to capture current frame and put it into the queue
     :param cap: object of OpenCV class
@@ -1095,18 +1099,12 @@ def get_data_from_camera(cap, q_frame, r, cal):
         if not r.is_paused:
             ret, frame = cap.read()
             q_frame.put(frame)
-            frame_new = cv2.flip(frame, 1)
-            #print(frame_new.shape)
-            if cal == 1:
-               for j in range(0, len(body)//2):
-                   cv2.circle(frame_new,(int(body[j*2]*frame_new.shape[1]),int(body[j*2+1]*frame_new.shape[0])),radius=5,color=(0, 0, 255),thickness=-1)
-               cv2.imshow('current frame', frame_new)
-               cv2.waitKey(1)
+
     cv2.destroyAllWindows()
     print('OpenCV thread terminated.')
 
 
-def mediapipe_forwardpass(holistic, mp_holistic, lock, q_frame, r, num_joints, joints):
+def mediapipe_forwardpass(holistic, mp_holistic, lock, q_frame, r, num_joints, joints, cal):
     """
     function that runs in the thread for estimating pose online
     :param pose: object of Mediapipe class used to predict poses
@@ -1161,11 +1159,15 @@ def mediapipe_forwardpass(holistic, mp_holistic, lock, q_frame, r, num_joints, j
 
             body_mp = np.array(body_list)
             q_frame.queue.clear()
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
             with lock:
                 body = np.copy(body_mp)
-            # except:
-            #     print('Expection in mediapipe_forwardpass. Closing thread')
-            #     r.is_terminated = True
+            if cal:
+                for j in range(0, len(body)//2):
+                    cv2.circle(image,(int(body[j*2]*image.shape[1]),int(body[j*2+1]*image.shape[0])),radius=5,color=(0, 0, 255),thickness=-1)
+                cv2.imshow('current frame', image)
+                cv2.waitKey(1)
+
     print('Mediapipe_forwardpass thread terminated.')
 
 
@@ -1203,21 +1205,19 @@ if __name__ == "__main__":
     
     myscreen = pygame.display.set_mode()
     # get the default size
-    width, height = myscreen.get_size()
+
+    global screen_width, screen_height
+    screen_width, screen_height = myscreen.get_size()
     pygame.display.quit()
 
-    window_width = int(0.75*width)
-    window_height = int(0.75*height)
+    window_width = int(0.85*screen_width)
+    window_height = int(0.75*screen_height)
 
-    screen_width = win.winfo_screenwidth()
-    screen_height = win.winfo_screenheight()
-
-    x_cordinate = int((width / 2) - (window_width / 2))
-    y_cordinate = int((height / 2) - (window_height / 2))
+    x_cordinate = int((screen_width / 2) - (window_width / 2))
+    y_cordinate = int((screen_height / 2) - (window_height / 2))
 
     win.geometry("{}x{}+{}+{}".format(window_width, window_height, x_cordinate, y_cordinate))
-
+    
     MainApplication(win)
-
     # initiate Tkinter mainloop
     win.mainloop()
