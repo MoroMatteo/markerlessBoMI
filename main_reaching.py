@@ -12,6 +12,7 @@ import cv2
 # For GUI
 import tkinter as tk
 from tkinter import Label, Button, BooleanVar, Checkbutton, Radiobutton, Text, IntVar
+from tkinter import messagebox
 # For pygame
 import pygame
 # For reaching task
@@ -432,6 +433,22 @@ def compute_calibration(drPath, calib_duration, lbl_calib, num_joints, joints):
 
     print('Calibration finished. You can now train BoMI forward map.')
 
+from scipy.signal import butter, filtfilt
+
+def butterworth_filter_2d(data, f_samp, f_cut, order):
+    # data: dati bidimensionali [n_punti x 2] (x, y)
+    # cutoff_freq: frequenza di taglio del filtro Butterworth
+    # order: ordine del filtro Butterworth
+    
+    # Trasforma la frequenza di taglio normalizzata
+    
+    nyquist_freq = f_samp * 0.5  # Assumendo un campionamento unitario
+    normalized_cutoff = f_cut / nyquist_freq
+    
+    # Applica il filtro passa-basso Butterworth
+    b, a = butter(order, normalized_cutoff)
+    filtered_data = filtfilt(b, a, data, axis=0)
+    return filtered_data
 
 def train_pca(calibPath, drPath):
     """
@@ -1013,8 +1030,7 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
             r.body = np.copy(body)
 
             # apply BoMI forward map to body vector to obtain cursor position.
-            # r.crs_x, r.crs_y = reaching_functions.update_cursor_position(r.body, map, rot_dr, scale_dr, off_dr, rot_custom, scale_custom, off_custom, p_range=(r.width, r.height), dr_mode=dr_mode)
-            r.crs_x, r.crs_y = reaching_functions.update_cursor_position_custom(r.body, map, rot_dr, scale_dr, off_dr)
+            r.crs_x, r.crs_y = reaching_functions.update_cursor_position(r.body, map, rot_dr, scale_dr, off_dr, rot_custom, scale_custom, off_custom, p_range=(r.width, r.height), dr_mode=dr_mode)
             
             # Check if the crs is bouncing against any of the 4 walls:
             if r.crs_x >= r.width:
@@ -1219,5 +1235,12 @@ if __name__ == "__main__":
     win.geometry("{}x{}+{}+{}".format(window_width, window_height, x_cordinate, y_cordinate))
     
     MainApplication(win)
+
+    def on_closing():
+	    if messagebox.askokcancel("Quit", "Do you want to quit?"):
+		    win.destroy()
+                    
+    win.protocol("WM_DELETE_WINDOW", on_closing)
+
     # initiate Tkinter mainloop
     win.mainloop()
