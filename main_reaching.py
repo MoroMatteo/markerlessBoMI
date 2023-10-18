@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 import time
+import math
 import matplotlib.pyplot as plt
 # For multithreading
 from threading import Thread, Lock
@@ -44,6 +45,7 @@ class MainApplication(tk.Frame):
         self.joints = np.zeros((5, 1))
         self.dr_mode = 'ae'
         self.font_size = 18
+        self.digit_lim = 3 #max subject number digit ex: insert 3 for max 999 subject
 
         # Calibration time remaining
         self.lbl_calib = Label(parent, text='Insert subject number: ')
@@ -147,9 +149,42 @@ class MainApplication(tk.Frame):
 
     def save_number(self):
         global subj_num_str
+        err = False
         # Funzione per ottenere il testo inserito nella casella di testo
-        subj_num_str = str(self.entry_subj_num.get()) + '_'
-        print(f"You have selected subject: {subj_num_str}")
+        
+        if self.entry_subj_num.get().isnumeric():
+            if int(self.entry_subj_num.get()) > 0:
+                digit_idx = math.floor(math.log10(int(self.entry_subj_num.get()))+1)
+                if self.digit_lim-digit_idx>=0:
+                    str_idx = '0'*(self.digit_lim-digit_idx) + str(self.entry_subj_num.get())
+                    subj_num_str = 'S' + str_idx + '_'
+                    print(f"You have selected: {subj_num_str}")
+                else:
+                    print("DEBUG: modify max digit")
+                    err = True
+                    self.w = popupWindow(self.parent, "Increase max digit")
+                    self.parent.wait_window(self.w.top)
+            else:
+                print("DEBUG: insert a non-zero positive number")
+                err = True
+                self.w = popupWindow(self.parent, "Insert a non-zero positive number")
+                self.parent.wait_window(self.w.top)
+            
+        else:
+            print("DEBUG: insert a number")
+            err = True
+            self.w = popupWindow(self.parent, "Insert a number")
+            self.parent.wait_window(self.w.top)
+
+        if err:
+            self.btn_calib["state"] = "disabled"
+            self.btn_map["state"] = "disabled"
+            self.btn_custom["state"] = "disabled"
+            self.btn_start["state"] = "disabled"
+            self.btn_num_joints["state"] = "disabled"
+            return
+        else:
+            self.btn_num_joints["state"] = "normal"
 
     # Count number of joints selected
     def select_joints(self):
@@ -205,6 +240,8 @@ class MainApplication(tk.Frame):
                 self.drPath = self.calibPath + 'VAE/'
                 train_vae(self.calibPath, self.drPath)
                 self.dr_mode = 'vae'
+            
+            self.w = popupWindow(self.parent, f"Training phase finished, you can now use the {self.dr_mode} model")
             self.btn_custom["state"] = "normal"
         else:
             self.w = popupWindow(self.master, "Perform calibration first.")
@@ -240,8 +277,6 @@ class MainApplication(tk.Frame):
             self.w = popupWindow(self.master, "You will now start practice.")
             self.master.wait_window(self.w.top)
             start_reaching(self.drPath, self.lbl_tgt, self.num_joints, self.joints, self.dr_mode)
-            # [ADD CODE HERE: one of the argument of start reaching should be [self.check_mouse]
-            # to check in the checkbox is enable] !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         else:
             self.w = popupWindow(self.master, "Perform customization first.")
             self.master.wait_window(self.w.top)
@@ -433,23 +468,6 @@ def compute_calibration(drPath, calib_duration, lbl_calib, num_joints, joints):
 
     print('Calibration finished. You can now train BoMI forward map.')
 
-from scipy.signal import butter, filtfilt
-
-def butterworth_filter_2d(data, f_samp, f_cut, order):
-    # data: dati bidimensionali [n_punti x 2] (x, y)
-    # cutoff_freq: frequenza di taglio del filtro Butterworth
-    # order: ordine del filtro Butterworth
-    
-    # Trasforma la frequenza di taglio normalizzata
-    
-    nyquist_freq = f_samp * 0.5  # Assumendo un campionamento unitario
-    normalized_cutoff = f_cut / nyquist_freq
-    
-    # Applica il filtro passa-basso Butterworth
-    b, a = butter(order, normalized_cutoff)
-    filtered_data = filtfilt(b, a, data, axis=0)
-    return filtered_data
-
 def train_pca(calibPath, drPath):
     """
     function to train BoMI forward map - PCA
@@ -604,7 +622,7 @@ def train_vae(calibPath, drPath, n_map_component=2):
     r = Reaching()
 
     # Autoencoder parameters
-    n_steps = 1001 #3001 at the beginning but it was too long
+    n_steps = 3001 #3001 at the beginning but it was too long
     lr = 0.02
     cu = n_map_component
     nh1 = 6

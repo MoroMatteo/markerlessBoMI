@@ -141,7 +141,7 @@ step 5 --> Upgrade pip and download all the packages (you should be in the folde
 
 ``` 
     $ pip install --upgrade pip
-    $ pip install -r requirments.txt
+    $ pip install -r requirements.txt
 ``` 
 If the line before does not work, download all the following packages (in the terminal):
 
