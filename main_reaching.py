@@ -45,10 +45,10 @@ class MainApplication(tk.Frame):
         self.joints = np.zeros((5, 1))
         self.dr_mode = 'ae'
         self.font_size = 18
-        self.digit_lim = 3 #max subject number digit ex: insert 3 for max 999 subject
+        self.digit_lim = 3 #max participant number digit ex: insert 3 for max 999 subject
 
         # Calibration time remaining
-        self.lbl_calib = Label(parent, text='Insert subject number: ')
+        self.lbl_calib = Label(parent, text='Insert participant number: ')
         self.lbl_calib.config(font=("Arial", self.font_size))
         self.lbl_calib.grid(row=0, column=0, columnspan=2, pady= (60,20),  padx= 20, sticky='w')
 
@@ -56,8 +56,8 @@ class MainApplication(tk.Frame):
         self.entry_subj_num.config(font=("Arial", self.font_size), width=10)
         self.entry_subj_num.grid(row=0, column=2, pady= (60,20), padx= (0,40), sticky='w')
 
-        #Save subject number button
-        self.btn_number = Button(parent, text="Save subject number", command=self.save_number)
+        #Save participant number button
+        self.btn_number = Button(parent, text="Save participant number", command=self.save_number)
         self.btn_number.config(font=("Arial", self.font_size))
         self.btn_number.grid(row=1, column=0, columnspan=2, padx=20, pady=(20, 30), sticky='nesw')
 
@@ -158,20 +158,21 @@ class MainApplication(tk.Frame):
                 if self.digit_lim-digit_idx>=0:
                     str_idx = '0'*(self.digit_lim-digit_idx) + str(self.entry_subj_num.get())
                     subj_num_str = 'S' + str_idx + '_'
-                    print(f"You have selected: {subj_num_str}")
+                    self.w = popupWindow(self.parent, f"You have selected: {'S' + str_idx}")
+                    print(f"You have selected: {'S' + str_idx}")
                 else:
-                    print("DEBUG: modify max digit")
+                    print("ERROR: modify max digit")
                     err = True
                     self.w = popupWindow(self.parent, "Increase max digit")
                     self.parent.wait_window(self.w.top)
             else:
-                print("DEBUG: insert a non-zero positive number")
+                print("ERROR: insert a non-zero positive number")
                 err = True
                 self.w = popupWindow(self.parent, "Insert a non-zero positive number")
                 self.parent.wait_window(self.w.top)
             
         else:
-            print("DEBUG: insert a number")
+            print("ERROR: insert a number")
             err = True
             self.w = popupWindow(self.parent, "Insert a number")
             self.parent.wait_window(self.w.top)
