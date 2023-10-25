@@ -4,7 +4,7 @@
 
 # UBUNTU installation steps:
 
-**TESTED with python>=3.9**
+**TESTED with python==3.9**
 
 step 0 --> open a terminal and cd to the home folder:
 
