@@ -39,7 +39,7 @@ setuptools.setup(
 'Markdown==3.4.3',
 'MarkupSafe==2.1.3',
 'matplotlib==3.7.1',
-'mediapipe==0.10.5',
+'mediapipe==0.8.11',
 'MouseInfo==0.1.3',
 'mss==9.0.1',
 'numpy==1.25.0',
