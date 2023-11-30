@@ -110,7 +110,7 @@ step 7 --> follow the steps in the GUI (see below after WINDOWS installation ste
 
 # WINDOWS installation steps:
 
-**TESTED with python>=3.7**
+**TESTED with python>=3.9**
 
 step 0 --> download Python3 at this link https://www.python.org/downloads/ [**During installation select Add Python to PATH**]
 
@@ -151,8 +151,8 @@ If the line before does not work, download all the following packages (in the te
     $ pip install matplotlib
     $ pip install pygame
     $ pip install pyautogui
-    $ pip install tensorflow
-    $ pip install mediapipe
+    $ pip install tensorflow==2.10.0
+    $ pip install mediapipe==0.8.11
     $ pip install scipy
     $ pip install sklearn
     $ pip install opencv-python

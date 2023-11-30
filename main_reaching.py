@@ -282,8 +282,6 @@ class MainApplication(tk.Frame):
             self.w = popupWindow(self.master, "Perform customization first.")
             self.master.wait_window(self.w.top)
             self.btn_start["state"] = "disabled"
-
-
 class CustomizationApplication(tk.Frame):
     """
     class that defines the customization tkinter window
@@ -374,8 +372,6 @@ class CustomizationApplication(tk.Frame):
         save_parameters(self, self.drPath)
         self.parent.destroy()
         self.mainTk.btn_start["state"] = "normal"
-
-
 class popupWindow(object):
     """
     class that defines the popup tkinter window
@@ -535,7 +531,6 @@ def train_pca(calibPath, drPath):
     np.savetxt(drPath + "offset_dr.txt", off)
 
     print('PCA scaling values has been saved. You can continue with customization.')
-
 
 def train_ae(calibPath, drPath):
     """
@@ -699,7 +694,6 @@ def train_vae(calibPath, drPath, n_map_component=2):
     
     print('VAE scaling values has been saved. You can continue with customization.')
 
-
 def load_bomi_map(dr_mode, drPath):
     if dr_mode == 'pca':
         map = pd.read_csv(drPath + 'weights1.txt', sep=' ', header=None).values
@@ -736,7 +730,6 @@ def load_bomi_map(dr_mode, drPath):
         map = (ws, bs)
 
     return map
-
 
 def initialize_customization(self, dr_mode, drPath, num_joints, joints):
     """
@@ -1121,7 +1114,6 @@ def start_reaching(drPath, lbl_tgt, num_joints, joints, dr_mode):
     cv2.destroyAllWindows()
     print("openCV object released in practice.")
 
-
 def get_data_from_camera(cap, q_frame, r):
     '''
     function that runs in the thread to capture current frame and put it into the queue
@@ -1137,7 +1129,6 @@ def get_data_from_camera(cap, q_frame, r):
 
     cv2.destroyAllWindows()
     print('OpenCV thread terminated.')
-
 
 def mediapipe_forwardpass(holistic, mp_holistic, lock, q_frame, r, num_joints, joints, cal):
     """
@@ -1204,7 +1195,6 @@ def mediapipe_forwardpass(holistic, mp_holistic, lock, q_frame, r, num_joints, j
                 cv2.waitKey(1)
 
     print('Mediapipe_forwardpass thread terminated.')
-
 
 def write_practice_files(r, timer_practice):
     """
